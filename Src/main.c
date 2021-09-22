@@ -86,10 +86,13 @@ static uint32_t tick_snd;
 //timer on TCP pool
 static uint32_t tick_tcp_pool;
 
-// ---------------------- HTTP CLIENT EXAMPLE (TCP) -------------------------
-
 #define RN	"\r\n"
-#define HTTP_SERVER	"IPCore/1.0 Alfa"
+
+
+// ---------------------- HTTP SERVER EXAMPLE (TCP) -------------------------
+
+#define HTTP_SERVER			"IPCore/1.0 Alfa"
+#define HTTP_SERVER_PORT	80
 
 const char http_200[] =
 "HTTP/1.1 200 OK"RN
@@ -131,6 +134,9 @@ const char http_400[] =
 ""RN
 "Bad Request";
 
+
+// ---------------------- HTTP CLIENT EXAMPLE (TCP) -------------------------
+
 const char http_get[] =
 "GET %s HTTP/1.1"RN
 "Host: %s"RN
@@ -146,6 +152,7 @@ const char http_get[] =
 #define HTTP_CLIENT_PORT	80
 #define HTTP_CLIENT_PATH	"/"
 static uint32_t http_client_ip = 0;
+
 
 // ---------------------- SIP CLIENT EXAMPLE (UDP) -------------------------
 
@@ -170,6 +177,20 @@ const char sip_snd_pack[] =
 ""RN
 ;
 
+// --------------------------------------------------------------------------
+
+void print_ip_config(void)
+{
+	ulog_fmt("ip %s\r\n", ip2str(get_ip_addr()));
+	ulog_fmt("rout %s\r\n", ip2str(get_ip_gateway()));
+	ulog_fmt("mask %s\r\n", ip2str(get_ip_mask()));
+	ulog_fmt("dns ip %s\r\n", ip2str(get_ip_dns()));
+	if (use_dhcp) {
+		ulog_fmt("dhcp ip %s\r\n", ip2str(get_ip_dhcp()));
+		ulog_fmt("dhcp lease time %ld\r\n", get_dhcp_lease_time_ms());
+	}
+}
+
 
 // --------------- FUNCTIONS MUST BE DIFINED ---------------------------------
 
@@ -190,25 +211,11 @@ void eth_send(uint8_t * data, uint16_t data_len)
 #endif
 }
 
-
-void print_ip_config(void)
-{
-	ulog_fmt("ip %s\r\n", ip2str(get_ip_addr()));
-	ulog_fmt("rout %s\r\n", ip2str(get_ip_gateway()));
-	ulog_fmt("mask %s\r\n", ip2str(get_ip_mask()));
-	ulog_fmt("dns ip %s\r\n", ip2str(get_ip_dns()));
-	if (use_dhcp) {
-		ulog_fmt("dhcp ip %s\r\n", ip2str(get_ip_dhcp()));
-		ulog_fmt("dhcp lease time %ld\r\n", get_dhcp_lease_time_ms());
-	}
-}
-
 void dhcp_complete(void)
 {
 	ulog("dhcp comlete\r\n");
 	print_ip_config();
 }
-
 
 void tcp_recv(uint8_t id, uint8_t * data, uint16_t data_len)
 {
@@ -216,7 +223,7 @@ void tcp_recv(uint8_t id, uint8_t * data, uint16_t data_len)
 
 	tcp_state_t * tcp_state = tcp_get_state(id);
 
-	if (tcp_state->local_port == HTONS(80)) {
+	if (tcp_state->local_port == HTONS(HTTP_SERVER_PORT)) {
 		//HTTP server
 		if (memcmp(data, "GET / ", 6) == 0)	{
 			//быстрая посылка данных только с ACK
@@ -226,8 +233,10 @@ void tcp_recv(uint8_t id, uint8_t * data, uint16_t data_len)
 			for (int i = 0; i < 10; ++i) tcp_send_ack(id, (uint8_t *)html_index_body, strlen(html_index_body));
 			tcp_send_fin(id, (uint8_t *)html_index_footer, strlen(html_index_footer)); //at the end send FIN
 		}
-		else tcp_send_fin(id, (uint8_t *)http_404, strlen(http_404));
+		else if (memcmp(data, "GET /", 5) == 0)	tcp_send_fin(id, (uint8_t *)http_404, strlen(http_404));
+		else tcp_send_fin(id, (uint8_t *)http_400, strlen(http_400));
 	} else {
+		//HTTP client
 		//пришли данные с сервера от запросов HTTP клиента
 		//data came from the server from HTTP client requests
 		ulog("http client receive data:\r\n\r\n");
@@ -259,22 +268,18 @@ void tcp_recv_connected(uint8_t id)
 
 }
 
-
 void tcp_recv_closed(uint8_t id, uint8_t why)
 {
 	ulog_fmt("tcp closed  id:%d why:%d\r\n", id, why);
 }
-
 
 uint8_t tcp_accept(uint32_t from_addr, uint16_t from_port, uint16_t to_port)
 {
 	ulog_fmt("tcp accept  from %s:%d to port %d\r\n", ip2str(from_addr), NTOHS(from_port), NTOHS(to_port));
 	//разрешаем соединение всем клиентам к нашему серверу на порту 80
 	//allow all clients to connect to our server on port 80
-	return NTOHS(to_port) == 80;
+	return NTOHS(to_port) == HTTP_SERVER_PORT;
 }
-
-
 
 void udp_recv(uint32_t from_addr, uint16_t from_port, uint16_t to_port, uint8_t * data, uint16_t data_len)
 {
