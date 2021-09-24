@@ -427,11 +427,11 @@ int main(void)
 
 
 
-  uint32_t tick_rst = get_ms();
+//  uint32_t tick_rst = get_ms();
+//  uint8_t work_minutes = 3;
   uint32_t iwdg_tick = get_ms();
   tick_snd = get_ms();
   tick_tcp_pool = get_ms();
-  uint8_t work_minutes = 3;
 
 
   /* USER CODE END 2 */
@@ -447,12 +447,12 @@ int main(void)
 	  net_process();
 
 
-	  if  (MS_DIFF_NOW(tick_rst) >  60000) {
-		tick_rst = HAL_GetTick();
-		work_minutes--;
-		ulog_fmt("reset after %d minutes\r\n", work_minutes);
-		if (work_minutes == 0) NVIC_SystemReset(); //work only work_minutes
-	  }
+//	  if  (MS_DIFF_NOW(tick_rst) >  60000) {
+//		tick_rst = HAL_GetTick();
+//		work_minutes--;
+//		ulog_fmt("reset after %d minutes\r\n", work_minutes);
+//		if (work_minutes == 0) NVIC_SystemReset(); //work only work_minutes
+//	  }
 
 	  if (MS_DIFF_NOW(iwdg_tick) > 100) {
 			iwdg_tick = HAL_GetTick();

@@ -1028,7 +1028,7 @@ uint32_t dns_resolve(char * node_name)
 
 // -------------------- UDP -------------------------------
 
-uint8_t udp_send(uint32_t to_addr, uint32_t to_port, uint32_t from_port, uint8_t *data, uint16_t data_len)
+uint8_t udp_send(uint32_t to_addr, uint16_t to_port, uint16_t from_port, uint8_t *data, uint16_t data_len)
 {
 
 	uint16_t dlen = MIN(data_len, udp_data_max_size);

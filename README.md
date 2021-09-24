@@ -33,7 +33,7 @@ if (!dhcp_resolve()) return;
 
 //to send a UDP packet, call the function:
 
-uint8_t udp_send(uint32_t to_addr, uint32_t to_port, uint32_t from_port, uint8_t * data, uint16_t data_len);
+uint8_t udp_send(uint32_t to_addr, uint16_t to_port, uint16_t from_port, uint8_t *data, uint16_t data_len);
 
 //to get the ip address of a host by name, call the DNS function:
 
@@ -128,7 +128,7 @@ if (!dhcp_resolve()) return;
 
 //для отправки UDP пакета вызвать функцию: 
 
-uint8_t udp_send(uint32_t to_addr, uint32_t to_port, uint32_t from_port, uint8_t *data, uint16_t data_len);
+uint8_t udp_send(uint32_t to_addr, uint16_t to_port, uint16_t from_port, uint8_t *data, uint16_t data_len);
 
 //для получения ip адреса хоста по названию вызвать DNS функцию:
 
