@@ -233,11 +233,13 @@ void eth_send(uint8_t * data, uint16_t data_len)
 #endif
 }
 
+#ifdef USE_DHCP
 void dhcp_complete(void)
 {
 	ulog("dhcp comlete\r\n");
 	print_ip_config();
 }
+#endif
 
 #ifdef USE_TCP
 void tcp_recv(uint8_t id, uint8_t * data, uint16_t data_len)
