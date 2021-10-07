@@ -12,5 +12,18 @@
 #include "ulog.h"
 #include "more.h"
 
+#define USE_ICMP
+
+#define USE_UDP
+
+#ifdef USE_UDP
+#define USE_DNS
+#ifdef USE_DNS
+#define USE_DHCP
+#endif
+#endif
+
+#define USE_TCP
+
 
 #endif /* INC_IPCORE_DEF_H_ */

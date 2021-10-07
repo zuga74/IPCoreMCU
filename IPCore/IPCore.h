@@ -129,6 +129,7 @@ typedef struct _ip_packet {
 
 
 // ---------------------- ICMP ----------------------------
+#ifdef USE_ICMP
 
 #define ICMP_TYPE_ECHO_RQ	8
 #define ICMP_TYPE_ECHO_RPLY	0
@@ -141,8 +142,9 @@ typedef struct _icmp_echo_packet {
 	uint16_t seq;
 } icmp_echo_packet_t;
 
-
+#endif
 // -------------------- UDP -------------------------------
+#ifdef USE_UDP
 
 typedef struct _udp_packet {
 	uint16_t from_port;
@@ -151,8 +153,10 @@ typedef struct _udp_packet {
 	uint16_t cksum;
 } udp_packet_t;
 
-
+#endif
 // -------------------- DNS -------------------------------
+#ifdef USE_DNS
+
 
 typedef struct _dns_request {
   uint16_t id;
@@ -204,7 +208,10 @@ typedef struct _dns_cache_entry {
 	uint32_t ip_addr;
 } dns_cache_entry_t;
 
+#endif
+
 // -------------------- DHCP -------------------------------
+#ifdef USE_DHCP
 
 #define DHCP_SERVER_PORT		HTONS(67)
 #define DHCP_CLIENT_PORT		HTONS(68)
@@ -274,7 +281,11 @@ typedef enum _dhcp_state {
 #define DHCP_TIMEOUT_MS			60000
 #endif
 
+#endif
+
 // -------------------- TCP -------------------------------
+
+#ifdef USE_TCP
 
 //максимальное кол-во TCP соединений
 //maximum number of TCP connections
@@ -330,7 +341,7 @@ typedef struct _tcp_state {
 	uint8_t tcp_ack_sent;
 } tcp_state_t;
 
-
+#endif
 
 #pragma pack(pop)
 
@@ -357,24 +368,31 @@ void set_ip_mask(uint32_t addr);
 uint32_t get_ip_gateway(void);
 void set_ip_gateway(uint32_t addr);
 
+#ifdef USE_DNS
 uint32_t get_ip_dns(void);
 void set_ip_dns(uint32_t addr);
+#endif
 
+#ifdef USE_DHCP
 uint32_t get_ip_dhcp(void);
 void set_ip_dhcp(uint32_t addr);
-
+#endif
 
 // ---------------------- Ponter --------------------------------
 
 //возвращает указатель на ethernet буффер отпраляемого пакета
 //returns a pointer to the ethernet buffer of the sent packet
 uint8_t * get_eth_buf(void);
+#ifdef USE_UDP
 //возвращает указатель на udp данные отпраляемого пакета
 //returns a pointer to the udp data of the sent packet
 uint8_t * get_udp_snd_packet_data(void);
+#endif
+#ifdef USE_TCP
 //возвращает указатель на tcp данные отправляемого пакета
 //returns a pointer to the tcp data of the sent packet
 uint8_t * get_tcp_snd_packet_data(void);
+#endif
 
 // ---------------------- Time ------------------------------------
 
@@ -404,6 +422,7 @@ void eth_send(uint8_t * data, uint16_t data_len);
 uint8_t *arp_resolve(uint32_t node_ip_addr);
 
 // -------------------- UDP -------------------------------
+#ifdef USE_UDP
 
 //должна быть определена !!!, вызывается при получении UDP пакета
 //must be defined !!!, called when a UDP packet is received
@@ -412,14 +431,19 @@ void udp_recv(uint32_t from_addr, uint16_t from_port, uint16_t to_port, uint8_t 
 //send UDP packet, returns 0 or 1
 uint8_t udp_send(uint32_t to_addr, uint16_t to_port, uint16_t from_port, uint8_t *data, uint16_t data_len);
 
+#endif
 
 // -------------------- DNS -------------------------------
+#ifdef USE_DNS
 
 //получить ip адрес хоста, возвращает ip адрес или 0 в случае ошибки
 //get the ip address of the host, returns the ip address or 0 in case of an error
 uint32_t dns_resolve(char * node_name);
 
+#endif
+
 // -------------------- DHCP -------------------------------
+#ifdef USE_DHCP
 
 //инициализвция DHCP
 //initialize DHCP
@@ -434,8 +458,11 @@ void dhcp_complete(void);
 //returns the lease time of the ip address in milliseconds
 uint32_t get_dhcp_lease_time_ms(void);
 
+#endif
 
 // -------------------- TCP -------------------------------
+#ifdef USE_TCP
+
 // -- TCP UTIL --
 //информация о TCP соединении
 //information about TCP connection
@@ -503,6 +530,6 @@ uint8_t tcp_send_rst(uint8_t id);
 //must be defined !!!, called when the connection is dropped (the remote host has dropped the connection or other reasons), id is the connection number
 void tcp_recv_closed(uint8_t id, uint8_t why);
 
-
+#endif
 
 #endif /* IPCORE_IPCORE_H_ */

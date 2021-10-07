@@ -73,22 +73,27 @@ static void MX_IWDG_Init(void);
 //#define PRINT_FRAME
 //#define PRINT_FRAME_FILTER 	ETH_TYPE_IP
 
+#define RN	"\r\n"
+
 //буфер под прием ETHERNET пакетов
 //buffer for receiving ETHERNET packets
 static uint8_t net_buf[1600];
+#ifdef USE_DHCP
 //использовать DHCP?
 //use DHCP?
 static uint8_t use_dhcp = 0;
+#endif
 //таймер на посылку пакета
 //timer for sending a packet
 static uint32_t tick_snd;
+#ifdef USE_TCP
 //таймер на TCP pool
 //timer on TCP pool
 static uint32_t tick_tcp_pool;
+#endif
 
-#define RN	"\r\n"
 
-
+#ifdef USE_TCP
 // ---------------------- HTTP SERVER EXAMPLE (TCP) -------------------------
 
 #define HTTP_SERVER			"IPCore/1.0 Alfa"
@@ -148,15 +153,26 @@ const char http_get[] =
 ""RN
 ;
 
+#ifdef USE_DNS
 #define HTTP_CLIENT_HOST	"example.com"
+#else
+#define HTTP_CLIENT_HOST	"93.184.216.34"
+#endif
 #define HTTP_CLIENT_PORT	80
 #define HTTP_CLIENT_PATH	"/"
 static uint32_t http_client_ip = 0;
 
+#endif
 
 // ---------------------- SIP CLIENT EXAMPLE (UDP) -------------------------
 
+#ifdef USE_UDP
+
+#ifdef USE_DNS
 #define SIP_SERVER_HOST 	"iptel.org"
+#else
+#define SIP_SERVER_HOST 	"212.79.111.155"
+#endif
 #define SIP_SERVER_PORT		5060
 #define SIP_CLIENT_ID		"3335"
 #define SIP_CLIENT_PORT		12345
@@ -177,6 +193,8 @@ const char sip_snd_pack[] =
 ""RN
 ;
 
+#endif
+
 // --------------------------------------------------------------------------
 
 void print_ip_config(void)
@@ -184,11 +202,15 @@ void print_ip_config(void)
 	ulog_fmt("ip %s\r\n", ip2str(get_ip_addr()));
 	ulog_fmt("rout %s\r\n", ip2str(get_ip_gateway()));
 	ulog_fmt("mask %s\r\n", ip2str(get_ip_mask()));
+#ifdef USE_DNS
 	ulog_fmt("dns ip %s\r\n", ip2str(get_ip_dns()));
+#endif
+#ifdef USE_DHCP
 	if (use_dhcp) {
 		ulog_fmt("dhcp ip %s\r\n", ip2str(get_ip_dhcp()));
 		ulog_fmt("dhcp lease time %ld\r\n", get_dhcp_lease_time_ms());
 	}
+#endif
 }
 
 
@@ -217,6 +239,7 @@ void dhcp_complete(void)
 	print_ip_config();
 }
 
+#ifdef USE_TCP
 void tcp_recv(uint8_t id, uint8_t * data, uint16_t data_len)
 {
 	ulog_fmt("tcp recv  id:%d data_len:%d\r\n", id, data_len);
@@ -280,7 +303,9 @@ uint8_t tcp_accept(uint32_t from_addr, uint16_t from_port, uint16_t to_port)
 	//allow all clients to connect to our server on port 80
 	return NTOHS(to_port) == HTTP_SERVER_PORT;
 }
+#endif
 
+#ifdef USE_UDP
 void udp_recv(uint32_t from_addr, uint16_t from_port, uint16_t to_port, uint8_t * data, uint16_t data_len)
 {
 	ulog_fmt("udp rsv from %s:%d to port %d len %d\r\n", ip2str(from_addr), NTOHS(from_port), NTOHS(to_port), data_len);
@@ -292,6 +317,7 @@ void udp_recv(uint32_t from_addr, uint16_t from_port, uint16_t to_port, uint8_t 
 		ulog("\r\n");
 	}
 }
+#endif
 
 // --------------- NET PROCESS ---------------------------------
 
@@ -310,35 +336,45 @@ void net_process(void)
 		eth_recv(net_buf, eth_len);
 	}
 
+#ifdef USE_DHCP
 	if (use_dhcp) {
 		if (!dhcp_resolve()) return; //return if dhcp not resolve
 	}
+#endif
 
+#ifdef USE_TCP
 	if  (MS_DIFF_NOW(tick_tcp_pool) > TCP_CONN_TIMEOUT) {
 		tick_tcp_pool = get_ms();
 		tcp_poll(); //call pooll periodically
 	}
-
+#endif
 
 
 	if  (MS_DIFF_NOW(tick_snd) > 30000) { // once every 30 sec
 		tick_snd = get_ms();
 
  	 	//HTTP CLIENT EXAMPLE (TCP)
+#ifdef USE_TCP
 		if (!http_client_ip) http_client_ip = str2ip(HTTP_CLIENT_HOST);
+#ifdef USE_DNS
 		if (!http_client_ip) http_client_ip = dns_resolve(HTTP_CLIENT_HOST);
+#endif
 		if (http_client_ip) {
 			uint16_t free_port = tcp_get_free_port();
 			uint8_t id = tcp_send_connect(http_client_ip, HTONS(HTTP_CLIENT_PORT), HTONS(free_port));
 			if (id != 0xff)	ulog_fmt("http client send connect successful id:%d\r\n", id);
 		}
+#endif
 
 
 
-/*
+
 		//SIP CLIENT EXAMPLE (UDP)
+#ifdef USE_UDP
 		if (!sip_client_ip) sip_client_ip = str2ip(SIP_SERVER_HOST);
+#ifdef USE_DNS
 		if (!sip_client_ip) sip_client_ip = dns_resolve(SIP_SERVER_HOST);
+#endif
 		if (sip_client_ip) {
 			char * buf = (char * )get_udp_snd_packet_data();
 			sprintf(buf, sip_snd_pack, ip2str(get_ip_addr()), SIP_CLIENT_PORT);
@@ -348,7 +384,8 @@ void net_process(void)
 				ulog("\r\n");
 			}
 		}
-*/
+#endif
+
 
 
 	}
@@ -413,16 +450,22 @@ int main(void)
   set_mac(mac);
 
 
+#ifdef USE_DHCP
   if (use_dhcp) {
 	  dhcp_init();
-  } else {
+  } else  {
+#endif
 	  set_ip_addr(str2ip("192.168.100.190"));
 	  set_ip_mask(str2ip("255.255.255.0"));
 	  set_ip_gateway(str2ip("192.168.100.1"));
+#ifdef USE_DNS
 	  set_ip_dns(str2ip("8.8.8.8"));
+#endif
 	  print_ip_config();
 	  //arp_resolve(get_ip_gateway());
+#ifdef USE_DHCP
   }
+#endif
 
 
 
@@ -431,7 +474,9 @@ int main(void)
 //  uint8_t work_minutes = 3;
   uint32_t iwdg_tick = get_ms();
   tick_snd = get_ms();
+#ifdef USE_TCP
   tick_tcp_pool = get_ms();
+#endif
 
 
   /* USER CODE END 2 */

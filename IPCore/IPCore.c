@@ -15,23 +15,29 @@ static uint8_t mac_addr[6] = {0};
 static uint32_t ip_addr = 0;
 static uint32_t ip_mask = 0;
 static uint32_t ip_gateway = 0;
+#ifdef USE_DNS
 static uint32_t ip_dns = 0;
+#endif
+#ifdef USE_DHCP
 static uint32_t ip_dhcp = 0xffffffff;
+#endif
 
+#ifdef USE_DHCP
 static dhcp_state_t dhcp_state = DHCP_NONE;
 static uint32_t dhcp_ms = 0;
-
 //время аренды ip адреса в милисекундах
 //IP address lease time in milliseconds
 static uint32_t dhcp_lease_time_ms = 0;
 uint32_t get_dhcp_lease_time_ms(void) { return dhcp_lease_time_ms; }
+#endif
 
 static uint8_t arp_cache_wr = 0;
 static arp_cache_entry_t arp_cache[ARP_CACHE_SIZE] = {0};
 
+#ifdef USE_DNS
 static uint8_t dns_cache_wr = 0;
 static dns_cache_entry_t dns_cache[DNS_CACHE_SIZE] = {0};
-
+#endif
 
 static uint8_t eth_buf[ETH_BUF_SIZE];
 
@@ -41,17 +47,25 @@ static eth_frame_t * eth_snd_frame = (eth_frame_t *)eth_buf;
 static uint8_t * eth_snd_frame_data = eth_buf + sizeof(eth_frame_t);
 static ip_packet_t *ip_snd_packet = (ip_packet_t *)(eth_buf + sizeof(eth_frame_t));
 static uint8_t * ip_snd_packet_data = eth_buf + sizeof(eth_frame_t) + sizeof(ip_packet_t);
+#ifdef USE_UDP
 static udp_packet_t *udp_snd_packet = (udp_packet_t *)(eth_buf + sizeof(eth_frame_t) + sizeof(ip_packet_t));
 static uint8_t * udp_snd_packet_data = eth_buf + sizeof(eth_frame_t) + sizeof(ip_packet_t) + sizeof(udp_packet_t);
+#endif
+#ifdef USE_TCP
 static tcp_packet_t * tcp_snd_packet = (tcp_packet_t *)(eth_buf + sizeof(eth_frame_t) + sizeof(ip_packet_t));
 static uint8_t * tcp_snd_packet_data = eth_buf + sizeof(eth_frame_t) + sizeof(ip_packet_t) + sizeof(tcp_packet_t);
+#endif
 
-
+#ifdef USE_UDP
 uint8_t * get_udp_snd_packet_data(void) { return udp_snd_packet_data; }
+#endif
+#ifdef USE_TCP
 uint8_t * get_tcp_snd_packet_data(void) { return tcp_snd_packet_data; }
+#endif
 
+#ifdef USE_DHCP
 static uint32_t dhcp_transaction_id = 0;
-
+#endif
 
 uint8_t * get_mac(void) { return mac_addr; }
 void set_mac(uint8_t * mac) { memcpy(mac_addr, mac, 6); }
@@ -65,13 +79,19 @@ void set_ip_mask(uint32_t addr) { ip_mask = addr; }
 uint32_t get_ip_gateway(void) { return ip_gateway; }
 void set_ip_gateway(uint32_t addr) { ip_gateway = addr; }
 
+#ifdef USE_DNS
 uint32_t get_ip_dns(void) { return ip_dns; }
 void set_ip_dns(uint32_t addr) { ip_dns = addr; }
+#endif
 
+#ifdef USE_DHCP
 uint32_t get_ip_dhcp(void) { return ip_dhcp; }
 void set_ip_dhcp(uint32_t addr) { ip_dhcp = addr; }
+#endif
 
+#ifdef USE_TCP
 static tcp_state_t tcp_pool[TCP_MAX_CONNECTIONS] = {0};
+#endif
 
 static uint8_t broadcast_mac[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 
@@ -83,24 +103,34 @@ void eth_snd(uint8_t * to_mac, uint8_t *data, uint16_t data_len, uint16_t type);
 //послать ip пакет
 //send ip packet
 uint8_t ip_snd(uint32_t to_addr, uint8_t * data,  uint16_t data_len, uint8_t protocol);
+#ifdef USE_DNS
 //Отправка запроса на DNS-сервер
 //Send request to DNS server
 uint8_t dns_request(uint16_t id, char * name);
+#endif
+#ifdef USE_DHCP
 //послать DHCP запрос с просбой аренды ip алреса
 //send a DHCP request asking for an ip address lease
 uint8_t dhcp_request_lease(void);
 //послать DHCP запрос с просбой продлить аренду ip алреса
 //send a DHCP request with a request to extend the lease of the ip address
 uint8_t dhcp_extend_lease(void);
+#endif
 
 
 static uint16_t eth_data_max_size = ETH_BUF_SIZE - sizeof(eth_frame_t);
 static uint16_t ip_data_max_size = ETH_BUF_SIZE - sizeof(eth_frame_t) - sizeof(ip_packet_t);
+#ifdef USE_UDP
 static uint16_t udp_data_max_size = ETH_BUF_SIZE - sizeof(eth_frame_t) - sizeof(ip_packet_t) - sizeof(udp_packet_t);
+#endif
+#ifdef USE_TCP
 static uint16_t tcp_data_max_size = ETH_BUF_SIZE - sizeof(eth_frame_t) - sizeof(ip_packet_t) - sizeof(tcp_packet_t);
+#endif
 
 static uint8_t last_arp_search_cache_index = 0;
+#ifdef USE_DNS
 static uint8_t last_dns_resolve_index = 0;
+#endif
 
 void ipcore_init(void)
 {
@@ -109,23 +139,34 @@ void ipcore_init(void)
 	ip_addr = 0;
 	ip_mask = 0;
 	ip_gateway = 0;
+#ifdef USE_DNS
 	ip_dns = 0;
+#endif
+#ifdef USE_DHCP
 	ip_dhcp = 0xffffffff;
+#endif
 
+#ifdef USE_DHCP
 	dhcp_state = DHCP_NONE;
 	dhcp_ms = 0;
 	dhcp_lease_time_ms = 0;
-
+#endif
 	arp_cache_wr = 0;
 
 	memset(arp_cache, 0, ARP_CACHE_SIZE * sizeof(arp_cache_entry_t));
 
+#ifdef USE_DNS
 	dns_cache_wr = 0;
 	memset(dns_cache, 0, DNS_CACHE_SIZE * sizeof(dns_cache_entry_t));
+#endif
 
+#ifdef USE_DHCP
 	dhcp_transaction_id = 0;
+#endif
 
+#ifdef USE_TCP
     memset(tcp_pool, 0, TCP_MAX_CONNECTIONS * sizeof(tcp_state_t));
+#endif
 
     last_arp_search_cache_index = 0;
 }
@@ -197,10 +238,15 @@ uint16_t pseudo_checksum(uint8_t *buff, uint16_t len, uint32_t src_addr, uint32_
 	return ( (uint16_t)(~sum)  );
 }
 
+#ifdef USE_UDP
 #define UDP_CHECKSUM(b, l, s, d)  pseudo_checksum(b, l, s, d, IP_PROTOCOL_UDP)
+#endif
+#ifdef USE_TCP
 #define TCP_CHECKSUM(b, l, s, d)  pseudo_checksum(b, l, s, d, IP_PROTOCOL_TCP)
+#endif
 
 // -------------------- TCP -------------------------------
+#ifdef USE_TCP
 
 // periodic event
 void tcp_poll(void)
@@ -651,8 +697,10 @@ void tcp_filter(tcp_packet_t *tcp_packet, uint16_t tcp_packet_len, uint32_t from
 
 }
 
+#endif
 
 // -------------------- DHCP -------------------------------
+#ifdef USE_DHCP
 
 #define DHCP_ADD_OPTION(ptr, optcode, type, value) \
 	((dhcp_option_t*)ptr)->code = optcode; \
@@ -883,7 +931,11 @@ uint8_t dhcp_resolve(void)
 	return res;
 }
 
+#endif
+
 // -------------------- DNS -------------------------------
+
+#ifdef USE_DNS
 
 char * dns_parse_name(char *query)
 {
@@ -1025,8 +1077,10 @@ uint32_t dns_resolve(char * node_name)
 	return 0;
 }
 
+#endif
 
 // -------------------- UDP -------------------------------
+#ifdef USE_UDP
 
 uint8_t udp_send(uint32_t to_addr, uint16_t to_port, uint16_t from_port, uint8_t *data, uint16_t data_len)
 {
@@ -1052,20 +1106,27 @@ void udp_filter(udp_packet_t *udp_packet, uint16_t udp_packet_len, uint32_t from
 	uint8_t * data = (uint8_t *)udp_packet + sizeof(udp_packet_t);
 
 	switch(udp_packet->to_port) {
+#ifdef USE_DHCP
 		case DHCP_CLIENT_PORT:
 			if (data_len >= sizeof(dhcp_message_t)) dhcp_filter(data, data_len, from_addr);
 			break;
+#endif
+#ifdef USE_DNS
 		case DNS_CLIENT_PORT:
 			if (data_len >= sizeof(dns_request_t)) dns_filter(data, data_len);
 			break;
+#endif
 		default:
 			udp_recv(from_addr, udp_packet->from_port, udp_packet->to_port, data, data_len);
 			break;
 	}
 }
 
+#endif
 
 // ---------------------- ICMP ----------------------------
+
+#ifdef USE_ICMP
 
 void icmp_filter(icmp_echo_packet_t *icmp, uint32_t from_addr)
 {
@@ -1082,6 +1143,7 @@ void icmp_filter(icmp_echo_packet_t *icmp, uint32_t from_addr)
 	ip_snd(from_addr, (uint8_t *)new_icmp,  sizeof(icmp_echo_packet_t), IP_PROTOCOL_ICMP);
 }
 
+#endif
 
 // ---------------------- Ip ---------------------------------
 
@@ -1156,22 +1218,27 @@ void ip_filter(ip_packet_t *ip_packet, uint16_t ip_packet_len)
 
 	uint16_t len = NTOHS(ip_packet->total_len) - sizeof(ip_packet_t); //длина icmp или udp заголовка и данных
 
-	//ip_rcv(ip_packet->from_addr, ip_packet->data,  len, ip_packet->protocol);
 
 
 	switch (ip_packet->protocol) {
+#ifdef USE_ICMP
 		case IP_PROTOCOL_ICMP:
 			//ulog_fmt("ip rcv icmp from %s len=%d\r\n", ip2str(ip_packet->from_addr),  len);
 			if (len >= sizeof(icmp_echo_packet_t)) icmp_filter((icmp_echo_packet_t *)((uint8_t *)ip_packet + sizeof(ip_packet_t)), ip_packet->from_addr);
 			break;
+#endif
+#ifdef USE_UDP
 		case IP_PROTOCOL_UDP:
 			//ulog_fmt("ip rcv udp from %s len=%d\r\n", ip2str(ip_packet->from_addr),  len);
 			if (len >= sizeof(udp_packet_t)) udp_filter((udp_packet_t *)((uint8_t *)ip_packet + sizeof(ip_packet_t)), len, ip_packet->from_addr);
 			break;
+#endif
+#ifdef USE_TCP
 		case IP_PROTOCOL_TCP:
 			//ulog_fmt("ip rcv tcp from %s len=%d\r\n", ip2str(ip_packet->from_addr),  len);
 			if (len >= sizeof(tcp_packet_t)) tcp_filter((tcp_packet_t *)((uint8_t *)ip_packet + sizeof(ip_packet_t)), len, ip_packet->from_addr);
 			break;
+#endif
 	}
 }
 
