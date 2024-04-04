@@ -15,10 +15,10 @@
 #define NULL 0
 #endif
 
-#define GET_BIT(v, n) 			((0u == (v & (1<<n))) ? 0u : 1u)
-#define SETT_BIT(v, n) 			(v |= (1<<n))
-#define CLR_BIT(v, n)       	(v &= (~(1<<n)))
-#define INV_BIT(v, n)          	(v ^= (1<<n))
+//#define GET_BIT(v, n) 			((0u == (v & (1<<n))) ? 0u : 1u)
+//#define SETT_BIT(v, n) 			(v |= (1<<n))
+//#define CLR_BIT(v, n)       	(v &= (~(1<<n)))
+//#define INV_BIT(v, n)          	(v ^= (1<<n))
 
 #ifndef RANDOM
 #define RANDOM(a) (rand() % (a))
@@ -37,22 +37,36 @@
 #endif
 
 
+#ifndef IP_BROADCAST
 #define IP_BROADCAST (ip_addr | ~ip_mask)
+#endif
 
 // ---------------------- Conversion ---------------------------------
 
+#ifndef HTONS
 #define HTONS(a)			((((a)>>8)&0xff)|(((a)<<8)&0xff00))
-#define NTOHS(a)			HTONS(a)
+#endif
 
+#ifndef NTOHS
+#define NTOHS(a)			HTONS(a)
+#endif
+
+#ifndef HTONL
 #define HTONL(a)			( (((a)>>24)&0xff) | (((a)>>8)&0xff00) |\
 							(uint32_t)((((uint64_t)a)<<8) & 0xff0000) |\
 							(uint32_t)((((uint64_t)a)<<24) & 0xff000000) )
+#endif
 
+#ifndef NTOHL
 #define NTOHL(a)			HTONL(a)
+#endif
 
 
+
+#ifndef IPV4ADDR
 #define IPV4ADDR(a,b,c,d)	( ((uint32_t)a) | ((uint32_t)b << 8) |\
 								((uint32_t)c << 16) | ((uint32_t)d << 24) )
+#endif
 
 
 #pragma pack(push, 1)
@@ -140,6 +154,7 @@ typedef struct _icmp_echo_packet {
 	uint16_t cksum;
 	uint16_t id;
 	uint16_t seq;
+	uint8_t data[32];
 } icmp_echo_packet_t;
 
 #endif
@@ -193,6 +208,7 @@ typedef struct _dns_answer {
 
 
 //кол-во записей в DNS таблице
+//number of records in the DNS table
 #ifndef DNS_CACHE_SIZE
 #define DNS_CACHE_SIZE 			10
 #endif
@@ -299,8 +315,15 @@ typedef enum _dhcp_state {
 //сколько существет открытое соединение без активности в миллисекундах
 //how long there is an open connection without activity in milliseconds
 #ifndef TCP_CONN_TIMEOUT
-#define TCP_CONN_TIMEOUT		5000
+#define TCP_CONN_TIMEOUT	60000
 #endif
+
+//через какое время необходим rexmit пакетов
+//how long does it take to rexmit packages
+#ifndef TCP_REXMIT_TIMEOUT
+#define TCP_REXMIT_TIMEOUT	2500
+#endif
+
 
 
 
@@ -339,6 +362,13 @@ typedef struct _tcp_state {
 	uint16_t remote_port;
 	uint16_t local_port;
 	uint8_t tcp_ack_sent;
+
+#ifdef WITH_TCP_REXMIT
+	uint32_t rexmit_sec_num;
+	uint32_t rexmit_ack_num;
+	uint32_t rexmit_event;
+#endif
+
 } tcp_state_t;
 
 #endif
@@ -378,20 +408,29 @@ uint32_t get_ip_dhcp(void);
 void set_ip_dhcp(uint32_t addr);
 #endif
 
+uint16_t ip_cksum(uint32_t sum, uint8_t *buf, uint16_t len);
+
+
 // ---------------------- Ponter --------------------------------
+//возвращает указатель на таблицу ARP
+arp_cache_entry_t * get_arp_cache(void);
 
 //возвращает указатель на ethernet буффер отпраляемого пакета
 //returns a pointer to the ethernet buffer of the sent packet
 uint8_t * get_eth_buf(void);
 #ifdef USE_UDP
+//возвращает указатель на таблицу DNS
+dns_cache_entry_t * get_dns_cache(void);
 //возвращает указатель на udp данные отпраляемого пакета
 //returns a pointer to the udp data of the sent packet
 uint8_t * get_udp_snd_packet_data(void);
+uint16_t get_tcp_snd_packet_data_size(void);
 #endif
 #ifdef USE_TCP
 //возвращает указатель на tcp данные отправляемого пакета
 //returns a pointer to the tcp data of the sent packet
 uint8_t * get_tcp_snd_packet_data(void);
+uint16_t get_udp_snd_packet_data_size(void);
 #endif
 
 // ---------------------- Time ------------------------------------
@@ -420,6 +459,10 @@ void eth_send(uint8_t * data, uint16_t data_len);
 //поиск мас-адреса по ip аддресу
 //search for mac-address by ip address
 uint8_t *arp_resolve(uint32_t node_ip_addr);
+
+
+// ---------------------- Ip ---------------------------------
+uint8_t ip_snd(uint32_t to_addr, uint8_t * data,  uint16_t data_len, uint8_t protocol);
 
 // -------------------- UDP -------------------------------
 #ifdef USE_UDP
@@ -514,6 +557,9 @@ uint8_t tcp_send_rst(uint8_t id);
 //послать закрыть TCP соединение, id - номер соединения, возвращает 0 или 1
 //send close TCP connection, id - connection number, returns 0 or 1
 #define TCP_SEND_CLOSE(id) tcp_send_fin(id, NULL, 0)
+//мы сбросили соединение
+//we dropped the connection
+#define TCP_WHY_CLOSED_FIN_ACK		0
 //удаленный хост закрыл соединение
 //the remote host closed the connection
 #define TCP_WHY_CLOSED_ESTABLISHED	1
@@ -529,6 +575,21 @@ uint8_t tcp_send_rst(uint8_t id);
 //должна быть определена !!!, вызывается когда соединение сброшено (удаленный хост разорвал соединение или другие причины), id - номер соединения
 //must be defined !!!, called when the connection is dropped (the remote host has dropped the connection or other reasons), id is the connection number
 void tcp_recv_closed(uint8_t id, uint8_t why);
+#ifdef WITH_TCP_REXMIT
+//должна быть определена !!! послать повторно все пакеты от пакета с rexmit_sec_num
+//must be defined !!! resend all packets from packet with rexmit_sec_num
+void tcp_rexmit(uint8_t id, uint32_t rexmit_sec_num);
+//должна быть определена !!! сохранить данные отсылаемого пакета
+////must be defined !!! save the data of the sent packet
+void tcp_rexmit_db_push(uint8_t id, uint32_t rexmit_sec_num, uint8_t * data, uint16_t data_len, uint8_t flags);
+//должна быть определена !!! очистить все rexmit данные всех пакетов, id- номер соединения
+//must be defined !!! clear all rexmit data of all packets, id - connection number
+void tcp_rexmit_db_clear(uint8_t id);
+//должна быть определена !!! удалить данные пакета с rexmit_sec_num
+//must be defined !!! delete package data from rexmit_sec_num
+void tcp_rexmit_db_pop(uint8_t id, uint32_t rexmit_sec_num);
+#endif
+
 
 #endif
 

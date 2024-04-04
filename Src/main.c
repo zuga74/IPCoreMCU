@@ -321,6 +321,41 @@ void udp_recv(uint32_t from_addr, uint16_t from_port, uint16_t to_port, uint8_t 
 }
 #endif
 
+
+#ifdef WITH_TCP_REXMIT
+
+void tcp_rexmit(uint8_t id, uint32_t rexmit_sec_num)
+{
+
+	tcp_state_t * tcp_state;
+
+	tcp_state = tcp_get_state(id);
+	tcp_state->status = TCP_ESTABLISHED;
+	tcp_state->seq_num = rexmit_sec_num;
+
+	//search from database packets where id (connection number) and database.rexmit_sec_num >= rexmit_sec_num
+	//and repeat packets
+	//tcp_send_flags(id, database.data, database.data_len, database.flags);
+
+}
+
+void tcp_rexmit_db_push(uint8_t id, uint32_t rexmit_sec_num, uint8_t * data, uint16_t data_len, uint8_t flags)
+{
+	//write to database id (connection number), rexmit_sec_num, data[data_len], flags
+}
+
+void tcp_rexmit_db_clear(uint8_t id)
+{
+	//clear from database where id (connection number)
+}
+
+void tcp_rexmit_db_pop(uint8_t id, uint32_t rexmit_sec_num)
+{
+
+}
+
+#endif
+
 // --------------- NET PROCESS ---------------------------------
 
 void net_process(void)
@@ -433,7 +468,7 @@ int main(void)
   MX_IWDG_Init();
   /* USER CODE BEGIN 2 */
 
-  ulog_fmt("start myIPCore ver:%d\r\n", 9876);
+  ulog_fmt("start myIPCore ver:%d\r\n", 9877);
 
   HAL_GPIO_WritePin(ETHERNET_RES_PORT, ETHERNET_RES_PIN, GPIO_PIN_SET);
   HAL_Delay(100);

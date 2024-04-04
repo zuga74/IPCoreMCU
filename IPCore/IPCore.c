@@ -33,10 +33,18 @@ uint32_t get_dhcp_lease_time_ms(void) { return dhcp_lease_time_ms; }
 
 static uint8_t arp_cache_wr = 0;
 static arp_cache_entry_t arp_cache[ARP_CACHE_SIZE] = {0};
+arp_cache_entry_t * get_arp_cache(void)
+{
+	return arp_cache;
+}
 
 #ifdef USE_DNS
 static uint8_t dns_cache_wr = 0;
 static dns_cache_entry_t dns_cache[DNS_CACHE_SIZE] = {0};
+dns_cache_entry_t * get_dns_cache(void)
+{
+	return dns_cache;
+}
 #endif
 
 static uint8_t eth_buf[ETH_BUF_SIZE];
@@ -130,6 +138,15 @@ static uint16_t tcp_data_max_size = ETH_BUF_SIZE - sizeof(eth_frame_t) - sizeof(
 static uint8_t last_arp_search_cache_index = 0;
 #ifdef USE_DNS
 static uint8_t last_dns_resolve_index = 0;
+#endif
+
+
+#ifdef USE_TCP
+uint16_t get_tcp_snd_packet_data_size(void) { return tcp_data_max_size; }
+#endif
+
+#ifdef USE_UDP
+uint16_t get_udp_snd_packet_data_size(void) { return udp_data_max_size; }
 #endif
 
 void ipcore_init(void)
@@ -252,17 +269,56 @@ uint16_t pseudo_checksum(uint8_t *buff, uint16_t len, uint32_t src_addr, uint32_
 void tcp_poll(void)
 {
 	uint8_t id;
+	uint32_t diff;
+
 
 	for (id = 0; id < TCP_MAX_CONNECTIONS; ++id)
 	{
+		if (tcp_pool[id].status == TCP_CLOSED) continue;
+
+		diff = get_ms_diff(tcp_pool[id].event_time, get_ms());
+
+		if (diff > 900) {
+
+			if (tcp_pool[id].status == TCP_SYN_SENT) {
+				tcp_pool[id].status = TCP_CLOSED;
+				tcp_recv_closed(id, TCP_WHY_CLOSED_CONN_TIMEOUT);
+				continue;
+			}
+
+
+		}
+
 		// check if connection timed out
-		if( (tcp_pool[id].status != TCP_CLOSED) && (get_ms() - tcp_pool[id].event_time > TCP_CONN_TIMEOUT) )
+		if (diff > TCP_CONN_TIMEOUT)
 		{
 			if (tcp_pool[id].status == TCP_ESTABLISHED) tcp_send_flags(id, NULL, 0, TCP_FLAG_FIN | TCP_FLAG_ACK);
 			// kill connection
 			tcp_pool[id].status = TCP_CLOSED;
 			tcp_recv_closed(id, TCP_WHY_CLOSED_CONN_TIMEOUT);
+			continue;
 		}
+
+#ifdef WITH_TCP_REXMIT
+		if ( ((tcp_pool[id].status == TCP_ESTABLISHED) || (tcp_pool[id].status == TCP_FIN_WAIT)) && tcp_pool[id].rexmit_event) {
+			if (MS_DIFF_NOW(tcp_pool[id].rexmit_event)  > TCP_REXMIT_TIMEOUT) {
+
+				if (tcp_pool[id].rexmit_sec_num) {
+					//tcp_pool[id].status = TCP_ESTABLISHED;
+					//ulog_fmt("rexmit id:%d rexmit_sec_num:%lu rexmit_ack_num:%lu\n", id, tcp_pool[id].rexmit_sec_num, tcp_pool[id].rexmit_ack_num);
+					tcp_pool[id].rexmit_sec_num = 0;
+					tcp_pool[id].rexmit_event = 0;
+					//tcp_pool[id].seq_num = tcp_pool[id].rexmit_ack_num;
+					tcp_rexmit(id, tcp_pool[id].rexmit_ack_num);
+				}
+				else tcp_rexmit_db_clear(id);
+				continue;
+			}
+		}
+#endif
+
+
+
 	}
 }
 
@@ -297,6 +353,39 @@ uint32_t generate_seq(void)
 }
 
 
+uint8_t tcp_snd(int32_t to_addr, uint32_t to_port, uint32_t from_port,
+				uint32_t seq_num, uint32_t ack_num,	uint8_t data_offset, uint8_t flags, uint16_t window, uint16_t urgent_ptr,
+				uint8_t *data, uint16_t data_len, uint8_t id)
+{
+	uint16_t dlen = MIN(data_len, tcp_data_max_size);
+
+	if (data != NULL) {
+		if  (tcp_snd_packet_data != data) memcpy(tcp_snd_packet_data, data, dlen);
+	}
+
+	uint16_t len = sizeof(tcp_packet_t) + dlen;
+	tcp_snd_packet->from_port = from_port;
+	tcp_snd_packet->to_port = to_port;
+
+	tcp_snd_packet->seq_num = seq_num;
+	tcp_snd_packet->ack_num = ack_num;
+	tcp_snd_packet->data_offset = data_offset;
+	tcp_snd_packet->flags = flags;
+	tcp_snd_packet->window = window;
+	tcp_snd_packet->urgent_ptr = urgent_ptr;
+
+
+	tcp_snd_packet->cksum = 0;
+	tcp_snd_packet->cksum = TCP_CHECKSUM((uint8_t*)tcp_snd_packet, len, ip_addr, to_addr);
+
+//ulog_fmt("snd s:%ld a:%ld\n", tcp_snd_packet->seq_num, tcp_snd_packet->ack_num);
+
+
+	return ip_snd(to_addr, (uint8_t *)tcp_snd_packet,  len, IP_PROTOCOL_TCP);
+
+}
+
+
 uint8_t tcp_send_connect(int32_t to_addr, uint16_t to_port, uint16_t from_port)
 {
 	uint8_t id;
@@ -307,39 +396,31 @@ uint8_t tcp_send_connect(int32_t to_addr, uint16_t to_port, uint16_t from_port)
 
 	if (id == TCP_MAX_CONNECTIONS) return 0xff;
 
-	uint32_t seq = generate_seq();
 
-	tcp_snd_packet->to_port = to_port;
-	tcp_snd_packet->from_port = from_port;
-	tcp_snd_packet->seq_num = HTONL(seq);
-	tcp_snd_packet->ack_num = 0;
-	tcp_snd_packet->data_offset = (sizeof(tcp_packet_t) + 4) << 2;
-	tcp_snd_packet->flags = TCP_FLAG_SYN;
-	tcp_snd_packet->window = HTONS(TCP_WINDOW_SIZE);
-	tcp_snd_packet->cksum = 0;
-	tcp_snd_packet->urgent_ptr = 0;
+	uint32_t seq = generate_seq();
 
 	tcp_snd_packet_data[0] = 2; // MSS option
 	tcp_snd_packet_data[1] = 4; // MSS option length = 4 bytes
 	tcp_snd_packet_data[2] = TCP_SYN_MSS >> 8;
 	tcp_snd_packet_data[3] = TCP_SYN_MSS & 0xff;
 
-	uint16_t len = sizeof(tcp_packet_t) + 4;
 
-	tcp_snd_packet->cksum = 0;
-	tcp_snd_packet->cksum = TCP_CHECKSUM((uint8_t*)tcp_snd_packet, len, ip_addr, to_addr);
-
-	if ( !ip_snd(to_addr, (uint8_t *)tcp_snd_packet,  len, IP_PROTOCOL_TCP) ) return 0xff;
+	if (!tcp_snd(to_addr, to_port, from_port,
+			HTONL(seq), 0,	(sizeof(tcp_packet_t) + 4) << 2, TCP_FLAG_SYN, HTONS(TCP_WINDOW_SIZE), 0,
+			(uint8_t *)tcp_snd_packet_data,  4, id)) return 0xff;
 
 	tcp_pool[id].status = TCP_SYN_SENT;
 	tcp_pool[id].event_time = get_ms();
 	tcp_pool[id].seq_num = seq + 1; //?
-	tcp_pool[id].ack_num = tcp_snd_packet->ack_num; //?
+	tcp_pool[id].ack_num = 0;//tcp_snd_packet->ack_num; //?
 	tcp_pool[id].remote_port = to_port;
 	tcp_pool[id].local_port =  from_port;
 	tcp_pool[id].remote_addr = to_addr;
 	tcp_pool[id].tcp_ack_sent = 0;
 
+#ifdef WITH_TCP_REXMIT
+	tcp_pool[id].rexmit_sec_num = 0;
+#endif
 
 	return id;
 }
@@ -374,35 +455,6 @@ uint8_t tcp_connect(int32_t to_addr, uint32_t to_port, uint32_t from_port)
 }
 */
 
-uint8_t tcp_snd(int32_t to_addr, uint32_t to_port, uint32_t from_port,
-				uint32_t seq_num, uint32_t ack_num,	uint8_t data_offset, uint8_t flags, uint16_t window, uint16_t urgent_ptr,
-				uint8_t *data, uint16_t data_len)
-{
-	uint16_t dlen = MIN(data_len, tcp_data_max_size);
-
-	if (data != NULL) {
-		if  (tcp_snd_packet_data != data) memcpy(tcp_snd_packet_data, data, dlen);
-	}
-
-	uint16_t len = sizeof(tcp_packet_t) + dlen;
-	tcp_snd_packet->from_port = from_port;
-	tcp_snd_packet->to_port = to_port;
-
-	tcp_snd_packet->seq_num = seq_num;
-	tcp_snd_packet->ack_num = ack_num;
-	tcp_snd_packet->data_offset = data_offset;
-	tcp_snd_packet->flags = flags;
-	tcp_snd_packet->window = window;
-	tcp_snd_packet->urgent_ptr = urgent_ptr;
-
-
-	tcp_snd_packet->cksum = 0;
-	tcp_snd_packet->cksum = TCP_CHECKSUM((uint8_t*)tcp_snd_packet, len, ip_addr, to_addr);
-
-
-	return ip_snd(to_addr, (uint8_t *)tcp_snd_packet,  len, IP_PROTOCOL_TCP);
-
-}
 
 
 
@@ -410,10 +462,20 @@ uint8_t tcp_send_flags(uint8_t id, uint8_t * data, uint16_t data_len, uint8_t fl
 {
 	uint8_t res;
 
+	tcp_pool[id].event_time = get_ms();
+
 	// send packet
 	res = tcp_snd(tcp_pool[id].remote_addr, tcp_pool[id].remote_port, tcp_pool[id].local_port,
 			HTONL(tcp_pool[id].seq_num), HTONL(tcp_pool[id].ack_num), sizeof(tcp_packet_t) << 2,  flags, HTONS(TCP_WINDOW_SIZE), 0,
-			data, data_len);
+			data, data_len, id);
+
+#ifdef WITH_TCP_REXMIT
+	if (data_len) {
+		tcp_pool[id].rexmit_sec_num = tcp_pool[id].seq_num;
+		tcp_pool[id].rexmit_event = get_ms();
+		tcp_rexmit_db_push(id, tcp_pool[id].rexmit_sec_num, data, data_len, flags);
+	}
+#endif
 
 	// advance sequence number
 	tcp_pool[id].seq_num += data_len;
@@ -450,7 +512,8 @@ uint8_t tcp_send_fin(uint8_t id, uint8_t * data, uint16_t data_len)
 
 	tcp_pool[id].status = TCP_FIN_WAIT;
 
-	return tcp_send_flags(id, data, data_len, TCP_FLAG_ACK | TCP_FLAG_FIN);
+
+	return tcp_send_flags(id, data, data_len, TCP_FLAG_ACK | TCP_FLAG_FIN | (data_len ? TCP_FLAG_PSH : 0));
 }
 
 uint8_t tcp_send_rst(uint8_t id)
@@ -521,6 +584,7 @@ void tcp_filter(tcp_packet_t *tcp_packet, uint16_t tcp_packet_len, uint32_t from
 		tcp_pool[id].local_port = tcp_packet->to_port;
 		tcp_pool[id].tcp_ack_sent = 0;
 
+
 		// send SYN/ACK
 		tcp_snd_packet_data[0] = 2;//option: MSS
 		tcp_snd_packet_data[1] = 4;//option len
@@ -531,10 +595,15 @@ void tcp_filter(tcp_packet_t *tcp_packet, uint16_t tcp_packet_len, uint32_t from
 
 		tcp_snd(tcp_pool[id].remote_addr, tcp_pool[id].remote_port, tcp_pool[id].local_port,
 				HTONL(tcp_pool[id].seq_num), HTONL(tcp_pool[id].ack_num), (sizeof(tcp_packet_t) + 4) << 2,  TCP_FLAG_SYN | TCP_FLAG_ACK, HTONS(TCP_WINDOW_SIZE), 0,
-				tcp_snd_packet_data, 4);
+				tcp_snd_packet_data, 4, id);
 
 		// advance sequence number
 		tcp_pool[id].seq_num++;
+
+#ifdef WITH_TCP_REXMIT
+		tcp_pool[id].rexmit_sec_num = 0;
+#endif
+
 		return;
 	}
 
@@ -552,18 +621,37 @@ void tcp_filter(tcp_packet_t *tcp_packet, uint16_t tcp_packet_len, uint32_t from
 		return;
 	}
 
+//ulog_fmt("rcv s:%lu a:%lu\n", NTOHL(tcp_packet->seq_num), NTOHL(tcp_packet->ack_num));
+
+#ifdef WITH_TCP_REXMIT
+	//tcp_rexmit_db_pop(id, NTOHL(tcp_packet->ack_num));
+	//fulog_fmt("IPCore: id:%d rexmit_seq_num:%lu rexmit_ack_num:%lu\n", id, tcp_pool[id].rexmit_sec_num, NTOHL(tcp_packet->ack_num));
+	tcp_pool[id].rexmit_ack_num = NTOHL(tcp_packet->ack_num);
+
+	tcp_rexmit_db_pop(id, tcp_pool[id].rexmit_ack_num);
+
+	if (tcp_pool[id].rexmit_sec_num == tcp_pool[id].rexmit_ack_num) {
+		tcp_pool[id].rexmit_sec_num = 0;
+	}
+#endif
 
 	if (tcp_pool[id].ack_num == 0) {
-		if ( (NTOHL(tcp_packet->ack_num) != tcp_pool[id].seq_num) || (!(tcpflags & TCP_FLAG_ACK)) )	return;
+		if ( (NTOHL(tcp_packet->ack_num) != tcp_pool[id].seq_num) || (!(tcpflags & TCP_FLAG_ACK)) )	{
+			//ulog_fmt("IPCore: NTOHL(tcp_packet->ack_num):%lu tcp_pool[id].seq_num:%lu\n", NTOHL(tcp_packet->ack_num), tcp_pool[id].seq_num);
+			return;
+		}
 		tcp_pool[id].ack_num = NTOHL(tcp_packet->seq_num) + 1;
 	} else {
 		// me needs only ack packet
-		if( (NTOHL(tcp_packet->seq_num) != tcp_pool[id].ack_num) || (NTOHL(tcp_packet->ack_num) != tcp_pool[id].seq_num) || (!(tcpflags & TCP_FLAG_ACK)) ) return;
+		if( (NTOHL(tcp_packet->seq_num) != tcp_pool[id].ack_num) || (NTOHL(tcp_packet->ack_num) != tcp_pool[id].seq_num) || (!(tcpflags & TCP_FLAG_ACK)) ) {
+			//ulog_fmt("IPCore: NTOHL(tcp_packet->seq_num):%lu tcp_pool[id].ack_num:%lu NTOHL(tcp_packet->ack_num):%lu tcp_pool[id].seq_num:%lu\n", NTOHL(tcp_packet->seq_num), tcp_pool[id].ack_num, NTOHL(tcp_packet->ack_num), tcp_pool[id].seq_num);
+			return;
+		}
 
 		// update ack pointer
 		tcp_pool[id].ack_num += data_len;
 		if ( (tcpflags & TCP_FLAG_FIN) || (tcpflags & TCP_FLAG_SYN) ) tcp_pool[id].ack_num++;
-}
+	}
 
 
 
@@ -643,16 +731,24 @@ void tcp_filter(tcp_packet_t *tcp_packet, uint16_t tcp_packet_len, uint32_t from
 			// received ACK
 			else if (tcpflags == TCP_FLAG_ACK)
 			{
-				// feed data to app
-				if (data_len) tcp_recv(id, data, data_len);
+				if (data_len) {
 
-				// app can send some data
-				//tcp_read(id, frame, 0);
+//#ifdef TCP_DOUBLE_ACK
+					tcp_snd(tcp_pool[id].remote_addr, tcp_pool[id].remote_port, tcp_pool[id].local_port,
+							HTONL(tcp_pool[id].seq_num), HTONL(tcp_pool[id].ack_num), sizeof(tcp_packet_t) << 2,  TCP_FLAG_ACK, HTONS(TCP_WINDOW_SIZE), 0,
+							NULL, 0, id);
+//#endif
+					// feed data to app
+					tcp_recv(id, data, data_len);
 
-				// send ACK
-				//ulog("connection send ACK\r\n");
-				//ulog_fmt("tcp seq=%ul ack=%ul, tcp_pool seq=%ul ack=%ul\r\n", HTONL(tcp_packet->seq_num), HTONL(tcp_packet->ack_num), tcp_pool[id].seq_num, tcp_pool[id].ack_num);
-				if ( (data_len) && (!tcp_pool[id].tcp_ack_sent) ) tcp_send_flags(id, NULL, 0, TCP_FLAG_ACK);
+					// send ACK
+					//ulog("connection send ACK\r\n");
+					//ulog_fmt("tcp seq=%ul ack=%ul, tcp_pool seq=%ul ack=%ul\r\n", HTONL(tcp_packet->seq_num), HTONL(tcp_packet->ack_num), tcp_pool[id].seq_num, tcp_pool[id].ack_num);
+
+					if (!tcp_pool[id].tcp_ack_sent) {
+						tcp_send_flags(id, NULL, 0, TCP_FLAG_ACK);
+					}
+				}
 			}
 
 			break;
@@ -678,13 +774,19 @@ void tcp_filter(tcp_packet_t *tcp_packet, uint16_t tcp_packet_len, uint32_t from
 
 			// received ACK+data?
 			// (buffer flushing by peer)
-			else if ( (tcpflags == TCP_FLAG_ACK) && (data_len) )
+			else if (tcpflags == TCP_FLAG_ACK)
 			{
-				// feed data to app
-				tcp_recv(id, data, data_len);
+				if (data_len) {
+					// feed data to app
+					tcp_recv(id, data, data_len);
 
-				// send ACK
-				tcp_send_flags(id, NULL, 0, TCP_FLAG_ACK);
+					// send ACK
+					tcp_send_flags(id, NULL, 0, TCP_FLAG_ACK);
+				} else {
+					tcp_send_flags(id, NULL, 0, TCP_FLAG_ACK |  TCP_FLAG_RST);
+					tcp_pool[id].status = TCP_CLOSED;
+					tcp_recv_closed(id, TCP_WHY_CLOSED_FIN_ACK);
+				}
 
 			}
 
@@ -1130,17 +1232,34 @@ void udp_filter(udp_packet_t *udp_packet, uint16_t udp_packet_len, uint32_t from
 
 void icmp_filter(icmp_echo_packet_t *icmp, uint32_t from_addr)
 {
+/*
 	if(icmp->type != ICMP_TYPE_ECHO_RQ) return;
 
-	icmp_echo_packet_t * new_icmp = (icmp_echo_packet_t *)ip_snd_packet_data;
+	icmp->type = ICMP_TYPE_ECHO_RPLY;
+	icmp->cksum = NTOHS(HTONS(icmp->cksum) + 8); // update cksum
+
+	ip_snd(from_addr, (uint8_t *)icmp,  sizeof(icmp_echo_packet_t), IP_PROTOCOL_ICMP);
+*/
+
+	icmp_echo_packet_t * new_icmp;
+
+	if(icmp->type != ICMP_TYPE_ECHO_RQ) return;
+
+	new_icmp = (icmp_echo_packet_t *)ip_snd_packet_data;
 
 	new_icmp->type = ICMP_TYPE_ECHO_RPLY;
 	new_icmp->code= icmp->code;
 	new_icmp->id = icmp->id;
 	new_icmp->seq = icmp->seq;
-	new_icmp->cksum = icmp->cksum + 8; // update cksum
+	new_icmp->cksum = 0;
+	//new_icmp->cksum = NTOHS(HTONS(icmp->cksum) + 8); // update cksum
+	memcpy(new_icmp->data, icmp->data, 32);
+	new_icmp->cksum = ip_cksum(0, (uint8_t *)new_icmp, sizeof(icmp_echo_packet_t));
 	//ulog("icmp send\r\n");
+
+
 	ip_snd(from_addr, (uint8_t *)new_icmp,  sizeof(icmp_echo_packet_t), IP_PROTOCOL_ICMP);
+
 }
 
 #endif

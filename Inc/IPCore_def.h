@@ -25,5 +25,10 @@
 
 #define USE_TCP
 
+#define WITH_TCP_REXMIT
+
+#define ARP_CACHE_SIZE			5
+
+#define DNS_CACHE_SIZE 			5
 
 #endif /* INC_IPCORE_DEF_H_ */
