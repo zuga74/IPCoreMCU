@@ -392,9 +392,11 @@ void net_process(void)
 
  	 	//HTTP CLIENT EXAMPLE (TCP)
 #ifdef USE_TCP
-		if (!http_client_ip) http_client_ip = str2ip(HTTP_CLIENT_HOST);
+
 #ifdef USE_DNS
 		if (!http_client_ip) http_client_ip = dns_resolve(HTTP_CLIENT_HOST);
+#else
+		if (!http_client_ip) http_client_ip = str2ip(HTTP_CLIENT_HOST);
 #endif
 		if (http_client_ip) {
 			uint16_t free_port = tcp_get_free_port();
@@ -408,10 +410,13 @@ void net_process(void)
 
 		//SIP CLIENT EXAMPLE (UDP)
 #ifdef USE_UDP
-		if (!sip_client_ip) sip_client_ip = str2ip(SIP_SERVER_HOST);
+
 #ifdef USE_DNS
 		if (!sip_client_ip) sip_client_ip = dns_resolve(SIP_SERVER_HOST);
+#else
+		if (!sip_client_ip) sip_client_ip = str2ip(SIP_SERVER_HOST);
 #endif
+
 		if (sip_client_ip) {
 			char * buf = (char * )get_udp_snd_packet_data();
 			sprintf(buf, sip_snd_pack, ip2str(get_ip_addr()), SIP_CLIENT_PORT);
